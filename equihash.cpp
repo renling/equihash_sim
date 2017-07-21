@@ -1,7 +1,7 @@
 #include "equihash.h"
 
 void PrintTable(Table &X, string header="", bool list=false)
-{
+{ 
 	cout << header << ": len = " << X.size() << endl;
 	if (!list)	return;
 	for (uint64_t i = 0; i < X.size(); i++)
@@ -32,19 +32,24 @@ private:
 bool Duplicated(Indices &y, Indices &x1, Indices &x2)
 {	
 	merge(x1.begin(), x1.end(), x2.begin(), x2.end(), back_inserter(y));
+//	return false;	// no deduplication at all, does not work with large n or k
 	
-	// return false;	// no deduplication at all, does not work with large n or k
-		
-	 return adjacent_find( y.begin(), y.end() ) != y.end();	// check for single duplicate with full index
-}
+//	Indices::iterator indexIt = unique(y.begin(), y.end());
+//	return distance(y.begin(), indexIt) != y.size(); // standard dup check
 
-bool DuplicatedFinal(Indices &y, Indices &x1, Indices &x2)
-{
-	merge(x1.begin(), x1.end(), x2.begin(), x2.end(), back_inserter(y));
-	// check for full duplicate in the case of index trimming.
-	// This throws away too many early on. Can only do it at the last step
-	Indices::iterator indexIt = unique(y.begin(), y.end());
-	return distance(y.begin(), indexIt) <= y.size() / 2;
+	int i = 0, j = 0;
+	while (i < y.size())
+	{
+		if (i+1 < y.size() && y[i] == y[i+1])
+		{
+			i += 2;	// skip this pair of elements
+			continue;
+		}
+		else	// keep this element
+			y[j++] = y[i++];
+	}
+	y.resize(j);	
+	return j == 0; // check for full dup
 }
 
 TableEntry MergeEntry(TableEntry &x1, TableEntry &x2, Indices indy, char step)
@@ -57,7 +62,7 @@ TableEntry MergeEntry(TableEntry &x1, TableEntry &x2, Indices indy, char step)
 	}
 	else
 		y.value = NULL;
-	y.indices = new Indices(indy);		
+	y.indices = new Indices(indy);	
 	return y;
 }
 
@@ -67,7 +72,7 @@ void FindCollision(Table &Y, Table &X, char step)
 	Y.reserve(X.size());
 	SortBySubBytes ByteRange(step);
 	sort(X.begin(), X.end(), ByteRange);
-	PrintTable(X, "sorted");
+	PrintTable(X, "sorted", false);
 
 	uint64_t i = 0, j = 0;
 	while (i < X.size())
@@ -82,11 +87,8 @@ void FindCollision(Table &Y, Table &X, char step)
 			for (uint64_t v = u+1; v < j; v++)	// add (X[k], X[l])
 			{	
 				Indices indy;
-				//if (X[u].size == step && !DuplicatedFinal( indy, *(X[u].indices), *(X[v].indices) ))	// final step			
-				//	Y.push_back( MergeEntry(X[u], X[v], indy, step) );										
-				//else 
-					if (!Duplicated( indy, *(X[u].indices), *(X[v].indices) ))				
-						Y.push_back( MergeEntry(X[u], X[v], indy, step) );				
+				if (!Duplicated( indy, *(X[u].indices), *(X[v].indices) ))				
+					Y.push_back( MergeEntry(X[u], X[v], indy, step) );				
 			}
 			delete X[u].value;	// we can free Table X up to row j now
 			delete X[u].indices;
@@ -94,7 +96,7 @@ void FindCollision(Table &Y, Table &X, char step)
 		
 		i = j;
 	}
-	PrintTable(Y, "collide");
+	// PrintTable(Y, "collide");
 }
 
 bool SortSolution(Indices x1, Indices x2)
@@ -131,7 +133,7 @@ int SingleListWagner(char nBytes, char kStep, int N, int indexSize, int64_t seed
 		X[j].indices = new Indices;
 		X[j].indices->push_back( j % (1 << indexSize) );	// index trimming
 	}
-	PrintTable(X, "initial");
+//	PrintTable(X, "initial");
 	
 	for (char k = 0; k < nBytes-2*kStep && X.size() > 0; k += kStep)
 	{
@@ -139,22 +141,31 @@ int SingleListWagner(char nBytes, char kStep, int N, int indexSize, int64_t seed
 		swap(X, Y);
 	}
 	FindCollision(Y, X, 2*kStep);
-	PrintTable(Y, "final", true);
-	
-	// remove completely duplicate entries since they are most likely true duplicates
-	vector<Indices> Solutions;
-	vector<Indices>::iterator it;	
-	cout << "# of sol = " << Y.size() << endl; 
-	for (int j = 0; j < Y.size(); j++)
-		Solutions.push_back(*(Y[j].indices));		
-	it = unique(Solutions.begin(), Solutions.end(), SameSolution);
-	Solutions.resize( distance(Solutions.begin(),it) );
-	cout << "# of sol after duplication 1 = " << Solutions.size() << endl; 
-	sort(Solutions.begin(), Solutions.end(), SortSolution);
-	it = unique(Solutions.begin(), Solutions.end(), SameSolution);
-	Solutions.resize( distance(Solutions.begin(),it) );
-	cout << "# of sol after duplication 2 = " << Solutions.size() << endl; 
-	return Solutions.size();
+
+//	PrintTable(Y, "final", true);
+//	return Y.size();
+
+	int real_num_sol = Y.size();
+	for (int i = 0; i < Y.size(); i++)
+	{
+		for (int j = 0; j < i; j++)
+		{
+			if ( Y[i].indices->size() != Y[j].indices->size() )
+				continue;
+			int l = 0;
+			for (l = 0; l < Y[i].indices->size(); l++)
+				if ( Y[i].indices->at(l) != Y[j].indices->at(l) )
+					break;
+
+			if ( l == Y[i].indices->size() )
+			{
+				real_num_sol--;
+				break;
+			}
+		}
+	}
+	cout << "final: len = " << real_num_sol << endl;
+	return real_num_sol;
 }
 
 
@@ -185,14 +196,14 @@ int main(int argc, char* argv[])
 		}
 	}
 	
-	int nTest = 10, nSol = 0;
+	int nTest = 50, nSol = 0;
 	clock_t start = clock(), diff;
 	for (int i = 0; i < nTest; i++)
 	{
 		nSol += SingleListWagner(nBytes, kStep, N, indexSize, i);
 	}	
 	diff = clock() - start;
-	cout << "Total # of sol = " << nSol << ", total time = " << diff / 1000000.0 << endl;
+	cout << "Avg # of sol = " << nSol * 1.0 / nTest << ", total time = " << diff / 1000000.0 << endl;
 	return 0;
 }
 
